@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "FleetTime Tracker",
+  "version": "0.1.0",
+  "description": "Reports Fleet AI task-writing, feedback, and QA session activity to the local FleetTime app.",
+  "permissions": ["tabs", "webNavigation", "storage", "alarms"],
+  "host_permissions": ["https://fleetai.com/*", "https://*.fleetai.com/*"],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://fleetai.com/work/problems/*", "https://*.fleetai.com/work/problems/*"],
+      "js": ["content/session-page.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options/options.html",
+  "action": {
+    "default_title": "FleetTime Tracker"
+  }
+}

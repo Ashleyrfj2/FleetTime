@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>FleetTime</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #1e1e24;
+        color: #eee;
+        -webkit-app-region: drag;
+        user-select: none;
+        padding: 10px 12px;
+        box-sizing: border-box;
+        height: 100vh;
+      }
+      #role {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #9a9ab0;
+      }
+      #task {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 2px 0 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #state {
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      #state.active { color: #6ee7a0; }
+      #state.guidelines { color: #7cc4ff; }
+      #state.slack { color: #b98cff; }
+      #state.idle { color: #999; }
+      #state.break { color: #ffcf6e; }
+      #totals {
+        margin-bottom: 8px;
+        border-top: 1px solid #34343e;
+        padding-top: 6px;
+      }
+      .total-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 11px;
+        color: #b9b9c8;
+        line-height: 1.5;
+      }
+      .total-row span:last-child {
+        text-align: right;
+        white-space: nowrap;
+      }
+      .total-row-main {
+        font-weight: 700;
+        color: #eee;
+        font-size: 12px;
+      }
+      button {
+        -webkit-app-region: no-drag;
+        width: 100%;
+        padding: 6px 0;
+        border-radius: 6px;
+        border: none;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #breakBtn.start { background: #ffcf6e; color: #221; }
+      #breakBtn.end { background: #3a3a44; color: #eee; }
+      #empty {
+        font-size: 12px;
+        color: #9a9ab0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="content">
+      <div id="empty">No active session</div>
+    </div>
+    <script src="widget.js"></script>
+  </body>
+</html>

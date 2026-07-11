@@ -1,0 +1,36 @@
+{
+  "name": "fleettime",
+  "version": "0.1.0",
+  "description": "Personal time tracker for Fleet AI task-writing, feedback, and QA workflows",
+  "private": true,
+  "main": "dist-electron/main/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "vite",
+    "build:renderer": "tsc -p tsconfig.json && vite build",
+    "build:electron": "tsc -p tsconfig.electron.json && cp electron/main/widget.html electron/main/widget.js dist-electron/main/",
+    "build": "npm run build:renderer && npm run build:electron",
+    "start": "npm run build && electron .",
+    "electron:dev": "npm run build:electron && FLEETTIME_DEV=1 electron .",
+    "test": "npm run build:electron && ELECTRON_RUN_AS_NODE=1 electron test/durations.test.js && node test/fleetUrls.test.mjs"
+  },
+  "dependencies": {
+    "active-win": "^8.2.1",
+    "better-sqlite3": "^11.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.2",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/ws": "^8.5.12",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.1"
+  }
+}
