@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   role TEXT NOT NULL CHECK (role IN ('task_writing', 'feedback', 'qa')),
   task_id TEXT NOT NULL,
+  instance_id TEXT,
   project_target_id TEXT,
   environment_name TEXT,
   url TEXT,

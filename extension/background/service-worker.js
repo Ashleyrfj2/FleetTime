@@ -65,6 +65,7 @@ function startNewSession(tabId, parsed, url) {
     type: "session_start",
     role: parsed.role,
     taskId: parsed.taskId,
+    instanceId: parsed.instanceId,
     projectTargetId: parsed.projectTargetId,
     environmentName: parsed.environmentName,
     url,
@@ -72,14 +73,16 @@ function startNewSession(tabId, parsed, url) {
   });
 }
 
-// The settled URL replaces the provisional one in place — one log entry, with
-// the original start time and any already-banked sub-timer durations kept.
+// The new URL replaces the previous one in place — one log entry, with the
+// original start time and any already-banked sub-timer durations kept. Used
+// both for the initial settle and for mid-session environment resets.
 function updateCurrentSession(parsed, url) {
   state.sessionInfo = parsed;
   persistState();
   sendEvent({
     type: "session_update",
     taskId: parsed.taskId,
+    instanceId: parsed.instanceId,
     projectTargetId: parsed.projectTargetId,
     environmentName: parsed.environmentName,
     url,
@@ -96,7 +99,15 @@ async function handleUrlChange(tabId, url) {
       state.sessionInfo &&
       state.sessionInfo.taskId === parsed.taskId &&
       state.sessionInfo.role === parsed.role;
-    if (isSameSession) return;
+    if (isSameSession) {
+      // Same task, but the virtual-environment key rotates on every
+      // recording stop/reset — keep the log's URL/instance current without
+      // logging a separate session.
+      if (parsed.instanceId !== state.sessionInfo.instanceId) {
+        updateCurrentSession(parsed, url);
+      }
+      return;
+    }
 
     const withinSettleWindow =
       state.sessionTabId === tabId &&

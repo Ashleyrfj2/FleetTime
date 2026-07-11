@@ -6,6 +6,7 @@ export interface SessionRow {
   id: string;
   role: SessionRole;
   task_id: string;
+  instance_id: string | null;
   project_target_id: string | null;
   environment_name: string | null;
   url: string | null;
@@ -24,6 +25,7 @@ export interface SessionRow {
 export interface StartSessionInput {
   role: SessionRole;
   taskId: string;
+  instanceId?: string | null;
   projectTargetId?: string | null;
   environmentName?: string | null;
   url?: string | null;

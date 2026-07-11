@@ -17,10 +17,18 @@ export function parseFleetUrl(url) {
   if (!isFleetHost(u.hostname)) return null;
 
   if (u.pathname === "/work/problems/create" && u.searchParams.has("instance_id")) {
+    // instance_id is the *virtual environment* key — it changes every time
+    // recording stops/resets within one task, so it must NOT be the session
+    // identity or each reset logs separately. task_project_target_id is the
+    // stable UUID for the task; fall back to instance_id only if it's absent
+    // (the settle-window merge then re-points once it appears).
+    const targetId = u.searchParams.get("task_project_target_id");
+    const instanceId = u.searchParams.get("instance_id");
     return {
       role: "task_writing",
-      taskId: u.searchParams.get("instance_id"),
-      projectTargetId: u.searchParams.get("task_project_target_id") || undefined,
+      taskId: targetId || instanceId,
+      instanceId,
+      projectTargetId: targetId || undefined,
     };
   }
 

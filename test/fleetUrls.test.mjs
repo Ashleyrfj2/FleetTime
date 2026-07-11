@@ -12,13 +12,32 @@ function check(label, fn) {
   console.log(`ok - ${label}`);
 }
 
-check("task-writing URL parses with instance_id and project target", () => {
+check("task-writing identity is the stable task_project_target_id, not the volatile instance_id", () => {
   const r = parseFleetUrl(
     "https://fleetai.com/work/problems/create?instance_id=ABC123&task_project_target_id=11111111-2222-3333-4444-555555555555"
   );
   assert.strictEqual(r.role, "task_writing");
-  assert.strictEqual(r.taskId, "ABC123");
+  assert.strictEqual(r.taskId, "11111111-2222-3333-4444-555555555555");
+  assert.strictEqual(r.instanceId, "ABC123");
   assert.strictEqual(r.projectTargetId, "11111111-2222-3333-4444-555555555555");
+});
+
+check("task-writing falls back to instance_id when the target id is absent", () => {
+  const r = parseFleetUrl("https://fleetai.com/work/problems/create?instance_id=ABC123");
+  assert.strictEqual(r.taskId, "ABC123");
+  assert.strictEqual(r.instanceId, "ABC123");
+  assert.strictEqual(r.projectTargetId, undefined);
+});
+
+check("an environment reset (new instance_id, same target) keeps the same identity", () => {
+  const before = parseFleetUrl(
+    "https://fleetai.com/work/problems/create?instance_id=AAA&task_project_target_id=uuid-1"
+  );
+  const after = parseFleetUrl(
+    "https://fleetai.com/work/problems/create?instance_id=BBB&task_project_target_id=uuid-1"
+  );
+  assert.strictEqual(before.taskId, after.taskId);
+  assert.notStrictEqual(before.instanceId, after.instanceId);
 });
 
 check("feedback edit URL parses with taskId", () => {
@@ -38,7 +57,10 @@ check("QA URL parses task ID from the path segment", () => {
 });
 
 check("www subdomain is accepted", () => {
-  assert.strictEqual(parseFleetUrl("https://www.fleetai.com/work/problems/create?instance_id=X").role, "task_writing");
+  assert.strictEqual(
+    parseFleetUrl("https://www.fleetai.com/work/problems/create?instance_id=X&task_project_target_id=y").role,
+    "task_writing"
+  );
 });
 
 check("non-session pages return null", () => {

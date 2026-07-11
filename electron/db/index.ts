@@ -13,10 +13,22 @@ function resolveDbPath(): string {
   return path.join(app.getPath("userData"), "fleettime.db");
 }
 
+// Columns added after the first release; CREATE TABLE IF NOT EXISTS won't
+// touch an existing table, so bring older databases up to date here.
+function migrate(database: Database.Database): void {
+  const columns = (database.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).map(
+    (c) => c.name
+  );
+  if (!columns.includes("instance_id")) {
+    database.exec("ALTER TABLE sessions ADD COLUMN instance_id TEXT");
+  }
+}
+
 export function getDb(): Database.Database {
   if (db) return db;
   db = new Database(resolveDbPath());
   db.pragma("journal_mode = WAL");
   db.exec(SCHEMA_SQL);
+  migrate(db);
   return db;
 }

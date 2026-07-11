@@ -268,4 +268,33 @@ check("scenario G: deleting an open session clears the active session", () => {
   assert.strictEqual(getOpenSession(), undefined);
 });
 
+// --- Scenario H: environment reset rotates instance_id, not the session ------
+let th = T0 + sec(10000);
+const h = startSession({
+  role: "task_writing",
+  taskId: "stable-uuid-1",
+  instanceId: "env-key-AAA",
+  url: "https://fleetai.com/work/problems/create?instance_id=env-key-AAA&task_project_target_id=stable-uuid-1",
+  ts: th,
+});
+transitionState(h.id, "slack", th + sec(40)); // bank 40s active before the reset
+
+check("scenario H: recording reset updates instance_id in place", () => {
+  updateOpenSessionTask(h.id, {
+    taskId: "stable-uuid-1",
+    instanceId: "env-key-BBB",
+    url: "https://fleetai.com/work/problems/create?instance_id=env-key-BBB&task_project_target_id=stable-uuid-1",
+  });
+  const row = getSession(h.id);
+  assert.strictEqual(row.task_id, "stable-uuid-1");
+  assert.strictEqual(row.instance_id, "env-key-BBB");
+  assert.strictEqual(row.started_at, th);
+  assert.strictEqual(row.active_seconds, 40);
+  assert.strictEqual(row.current_state, "slack");
+  // Still exactly one session for this task.
+  const db = require("../dist-electron/db/index").getDb();
+  assert.strictEqual(db.prepare("SELECT count(*) AS c FROM sessions WHERE task_id = 'stable-uuid-1'").get().c, 1);
+});
+endSession(h.id, "closed", th + sec(60));
+
 console.log(`\n${passed} checks passed`);

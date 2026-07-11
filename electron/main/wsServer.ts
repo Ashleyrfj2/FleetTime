@@ -16,6 +16,7 @@ type IncomingMessage =
       type: "session_start";
       role: SessionRole;
       taskId: string;
+      instanceId?: string;
       projectTargetId?: string;
       environmentName?: string;
       url?: string;
@@ -24,6 +25,7 @@ type IncomingMessage =
   | {
       type: "session_update";
       taskId: string;
+      instanceId?: string;
       projectTargetId?: string;
       environmentName?: string;
       url?: string;
@@ -77,6 +79,7 @@ export function startWsServer(config: AppConfig, onChange: () => void): WebSocke
           startSession({
             role: msg.role,
             taskId: msg.taskId,
+            instanceId: msg.instanceId,
             projectTargetId: msg.projectTargetId,
             environmentName: msg.environmentName,
             url: msg.url,
@@ -91,6 +94,7 @@ export function startWsServer(config: AppConfig, onChange: () => void): WebSocke
           if (open) {
             updateOpenSessionTask(open.id, {
               taskId: msg.taskId,
+              instanceId: msg.instanceId,
               projectTargetId: msg.projectTargetId,
               environmentName: msg.environmentName,
               url: msg.url,
