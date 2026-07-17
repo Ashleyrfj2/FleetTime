@@ -63,13 +63,14 @@ export function startSession(input: StartSessionInput): SessionRow {
   const id = randomUUID();
   getDb()
     .prepare(
-      `INSERT INTO sessions (id, role, task_id, project_target_id, environment_name, url, started_at, current_state, state_started_at)
-       VALUES (@id, @role, @task_id, @project_target_id, @environment_name, @url, @started_at, 'active', @started_at)`
+      `INSERT INTO sessions (id, role, task_id, instance_id, project_target_id, environment_name, url, started_at, current_state, state_started_at)
+       VALUES (@id, @role, @task_id, @instance_id, @project_target_id, @environment_name, @url, @started_at, 'active', @started_at)`
     )
     .run({
       id,
       role: input.role,
       task_id: input.taskId,
+      instance_id: input.instanceId ?? null,
       project_target_id: input.projectTargetId ?? null,
       environment_name: input.environmentName ?? null,
       url: input.url ?? null,
@@ -91,8 +92,9 @@ export function endSession(sessionId: string, reason: "submitted" | "closed", ts
     .run(ts, reason === "submitted" ? ts : null, sessionId);
 }
 
-export function setEnvironmentName(sessionId: string, environmentName: string): void {
-  getDb().prepare("UPDATE sessions SET environment_name = ? WHERE id = ?").run(environmentName, sessionId);
+export function setEnvironmentName(sessionId: string, environmentName: string | null): void {
+  const name = environmentName?.trim() || null;
+  getDb().prepare("UPDATE sessions SET environment_name = ? WHERE id = ?").run(name, sessionId);
 }
 
 /**
@@ -103,7 +105,13 @@ export function setEnvironmentName(sessionId: string, environmentName: string): 
  */
 export function updateOpenSessionTask(
   sessionId: string,
-  fields: { taskId: string; projectTargetId?: string | null; url?: string | null; environmentName?: string | null }
+  fields: {
+    taskId: string;
+    instanceId?: string | null;
+    projectTargetId?: string | null;
+    url?: string | null;
+    environmentName?: string | null;
+  }
 ): void {
   const session = getSession(sessionId);
   if (!session || session.ended_at !== null) return;
@@ -112,6 +120,7 @@ export function updateOpenSessionTask(
     .prepare(
       `UPDATE sessions SET
          task_id = @task_id,
+         instance_id = COALESCE(@instance_id, instance_id),
          project_target_id = COALESCE(@project_target_id, project_target_id),
          url = COALESCE(@url, url),
          environment_name = COALESCE(@environment_name, environment_name)
@@ -120,6 +129,7 @@ export function updateOpenSessionTask(
     .run({
       id: sessionId,
       task_id: fields.taskId,
+      instance_id: fields.instanceId ?? null,
       project_target_id: fields.projectTargetId ?? null,
       url: fields.url ?? null,
       environment_name: fields.environmentName ?? null,

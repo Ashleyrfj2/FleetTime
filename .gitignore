@@ -3,3 +3,14 @@ dist-electron/
 dist-renderer/
 *.log
 .DS_Store
+*.test.mjs
+
+# Confidential: real Fleet environment names and personal pay rates must
+# never reach the public repo. Copy the matching *.example.json locally.
+seed-environments.json
+rates.json
+
+# Session logs live outside the repo, but never commit a database copy either.
+*.db
+*.db-wal
+*.db-shm

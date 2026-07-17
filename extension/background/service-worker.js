@@ -65,6 +65,7 @@ function startNewSession(tabId, parsed, url) {
     type: "session_start",
     role: parsed.role,
     taskId: parsed.taskId,
+    instanceId: parsed.instanceId,
     projectTargetId: parsed.projectTargetId,
     environmentName: parsed.environmentName,
     url,
@@ -72,14 +73,16 @@ function startNewSession(tabId, parsed, url) {
   });
 }
 
-// The settled URL replaces the provisional one in place — one log entry, with
-// the original start time and any already-banked sub-timer durations kept.
+// The new URL replaces the previous one in place — one log entry, with the
+// original start time and any already-banked sub-timer durations kept. Used
+// both for the initial settle and for mid-session environment resets.
 function updateCurrentSession(parsed, url) {
   state.sessionInfo = parsed;
   persistState();
   sendEvent({
     type: "session_update",
     taskId: parsed.taskId,
+    instanceId: parsed.instanceId,
     projectTargetId: parsed.projectTargetId,
     environmentName: parsed.environmentName,
     url,
@@ -92,11 +95,34 @@ async function handleUrlChange(tabId, url) {
 
   if (parsed) {
     const isSameSession =
-      state.sessionTabId === tabId &&
       state.sessionInfo &&
       state.sessionInfo.taskId === parsed.taskId &&
       state.sessionInfo.role === parsed.role;
-    if (isSameSession) return;
+    if (isSameSession) {
+      // Adopt the tab if the same task shows up elsewhere (tab duplicated or
+      // reopened) so tracking follows the tab actually being used.
+      if (state.sessionTabId !== tabId) {
+        state.sessionTabId = tabId;
+        persistState();
+      }
+      // Same task, but the virtual-environment key rotates on every
+      // recording stop/reset — keep the log's URL/instance current without
+      // logging a separate session.
+      if (parsed.instanceId !== state.sessionInfo.instanceId) {
+        updateCurrentSession(parsed, url);
+      }
+      return;
+    }
+
+    // Task-writing/QA tabs redirect INTO the deployment host to do the real
+    // work (the /work/problems/create page is visible for only a few seconds)
+    // and environment resets hop back through it. A deployment URL while any
+    // other-role session is open is therefore part of that session — never a
+    // new Environmental QA log. Environmental QA only starts when no session
+    // is active.
+    if (parsed.role === "env_qa" && state.sessionInfo && state.sessionInfo.role !== "env_qa") {
+      return;
+    }
 
     const withinSettleWindow =
       state.sessionTabId === tabId &&
@@ -125,6 +151,8 @@ function setGuidelines(active) {
 async function checkGuidelinesState() {
   await loadState();
   if (!state.sessionInfo) return;
+  // Environmental QA is a single-timer workflow — no guidelines sub-timer.
+  if (state.sessionInfo.role === "env_qa") return;
 
   let activeTab;
   try {

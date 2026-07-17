@@ -28,6 +28,8 @@ export function startSlackFocusWatcher(onChange: () => void): NodeJS.Timeout | n
     const open = getOpenSession();
     if (!open) return;
     if (open.current_state === "idle" || open.current_state === "break") return;
+    // Environmental QA is a single-timer workflow — no Slack sub-timer.
+    if (open.role === "env_qa") return;
 
     let result: ActiveWindowResult;
     try {

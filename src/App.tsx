@@ -1,7 +1,38 @@
 import { useCallback, useEffect, useState } from "react";
 import type { SessionRow, SessionSummary } from "../electron/db/types";
-import type { DailySummary, LoggedDay } from "../electron/db/summary";
+import type { DailySummary, LoggedDay, WeeklySummary } from "../electron/db/summary";
+import type { EnvironmentRow } from "../electron/db/environments";
 import { formatClockTime, formatDuration, ROLE_LABELS } from "./format";
+
+/**
+ * Dropdown of manageable environments. Hidden ones are excluded, but the
+ * current value stays selectable even if hidden/deleted so existing logs
+ * never display a wrong name.
+ */
+function EnvironmentSelect({
+  environments,
+  value,
+  onChange,
+}: {
+  environments: EnvironmentRow[];
+  value: string | null;
+  onChange: (name: string | null) => void;
+}) {
+  const visible = environments.filter((env) => !env.hidden);
+  const names = visible.map((env) => env.name);
+  if (value && !names.includes(value)) names.unshift(value);
+
+  return (
+    <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">—</option>
+      {names.map((name) => (
+        <option key={name} value={name}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 // Local-timezone date string — toISOString() would flip to tomorrow's UTC
 // date during evening sessions and hide them from the "today" views.
@@ -55,8 +86,16 @@ function DurationFields({
   );
 }
 
-function SessionEditForm({ session, onDone }: { session: SessionSummary; onDone: () => void }) {
-  const [envName, setEnvName] = useState(session.environment_name ?? "");
+function SessionEditForm({
+  session,
+  environments,
+  onDone,
+}: {
+  session: SessionSummary;
+  environments: EnvironmentRow[];
+  onDone: () => void;
+}) {
+  const [envName, setEnvName] = useState<string | null>(session.environment_name);
   const [role, setRole] = useState(session.role);
   const [active, setActive] = useState(splitDuration(session.active_seconds));
   const [guidelines, setGuidelines] = useState(splitDuration(session.guidelines_seconds));
@@ -64,7 +103,7 @@ function SessionEditForm({ session, onDone }: { session: SessionSummary; onDone:
 
   const save = async () => {
     await window.fleettime.editSession(session.id, {
-      environmentName: envName.trim() || null,
+      environmentName: envName,
       role,
       activeSeconds: joinDuration(active),
       guidelinesSeconds: joinDuration(guidelines),
@@ -77,18 +116,14 @@ function SessionEditForm({ session, onDone }: { session: SessionSummary; onDone:
     <div className="card session-edit">
       <div className="edit-row">
         <span className="edit-row-label">Environment</span>
-        <input
-          type="text"
-          value={envName}
-          placeholder={session.task_id}
-          onChange={(e) => setEnvName(e.target.value)}
-        />
+        <EnvironmentSelect environments={environments} value={envName} onChange={setEnvName} />
       </div>
       <div className="edit-row">
         <span className="edit-row-label">Role</span>
         <select value={role} onChange={(e) => setRole(e.target.value as SessionSummary["role"])}>
           <option value="task_writing">Task writing</option>
           <option value="qa">QA</option>
+          <option value="env_qa">Environmental QA</option>
           <option value="feedback">Feedback</option>
         </select>
       </div>
@@ -107,7 +142,15 @@ function SessionEditForm({ session, onDone }: { session: SessionSummary; onDone:
   );
 }
 
-function SessionCard({ session, onChanged }: { session: SessionSummary; onChanged: () => void }) {
+function SessionCard({
+  session,
+  environments,
+  onChanged,
+}: {
+  session: SessionSummary;
+  environments: EnvironmentRow[];
+  onChanged: () => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -115,6 +158,7 @@ function SessionCard({ session, onChanged }: { session: SessionSummary; onChange
     return (
       <SessionEditForm
         session={session}
+        environments={environments}
         onDone={() => {
           setEditing(false);
           onChanged();
@@ -149,8 +193,17 @@ function SessionCard({ session, onChanged }: { session: SessionSummary; onChange
         <dd>{formatDuration(session.guidelines_seconds)}</dd>
         <dt>Total Slack time</dt>
         <dd>{formatDuration(session.slack_seconds)}</dd>
-        <dt>Submitted time</dt>
-        <dd>{session.submitted_at ? formatClockTime(session.submitted_at) : "N/A"}</dd>
+        <dt>Environment</dt>
+        <dd>
+          <EnvironmentSelect
+            environments={environments}
+            value={session.environment_name}
+            onChange={async (name) => {
+              await window.fleettime.setSessionEnvironment(session.id, name);
+              onChanged();
+            }}
+          />
+        </dd>
       </dl>
       <div className="card-actions">
         <button type="button" onClick={() => setEditing(true)}>
@@ -164,29 +217,101 @@ function SessionCard({ session, onChanged }: { session: SessionSummary; onChange
   );
 }
 
+function formatWeekDate(dateStr: string): string {
+  return new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric" }).format(
+    new Date(`${dateStr}T12:00:00`)
+  );
+}
+
+function WeeklySummaryView({ week }: { week: WeeklySummary }) {
+  return (
+    <div className="card weekly-summary">
+      <h3>
+        This week <span className="muted">({formatWeekDate(week.weekStart)} – {formatWeekDate(week.weekEnd)})</span>
+      </h3>
+      <p>Weekly time: {formatDuration(week.totalSeconds)}</p>
+      <p className="daily-total">
+        Total week earnings: $
+        {week.totalEarnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </p>
+      <p className="muted weekly-breakdown">
+        Environmental QA ${week.envQaEarnings.toFixed(2)} ({formatDuration(Math.round(week.envQaSeconds / 60) * 60)}{" "}
+        @ ${week.envQaRate}/h) · Task writing &amp; QA ${week.taskQaEarnings.toFixed(2)} (
+        {formatDuration(week.taskQaSeconds)} @ ${week.taskQaRate}/h)
+      </p>
+    </div>
+  );
+}
+
+function DayNotes({ date, savedNote }: { date: string; savedNote: string }) {
+  const [text, setText] = useState(savedNote);
+  const [dirty, setDirty] = useState(false);
+
+  // The dashboard refreshes every few seconds; only mirror the stored note
+  // while the user isn't mid-edit, so typing never gets clobbered.
+  useEffect(() => {
+    if (!dirty) setText(savedNote);
+  }, [savedNote, dirty]);
+
+  const save = async () => {
+    await window.fleettime.setDayNote(date, text);
+    setDirty(false);
+  };
+
+  return (
+    <div className="day-notes">
+      <h4>Notes</h4>
+      <textarea
+        rows={3}
+        value={text}
+        placeholder="Add notes for this day…"
+        onChange={(e) => {
+          setText(e.target.value);
+          setDirty(true);
+        }}
+      />
+      {dirty && (
+        <div className="card-actions">
+          <button type="button" className="btn-primary" onClick={save}>
+            Save note
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setText(savedNote);
+              setDirty(false);
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DailySummaryView({ summary }: { summary: DailySummary }) {
-  if (summary.roles.length === 0) {
-    return <p className="muted">No sessions logged yet today.</p>;
-  }
   return (
     <div>
-      <h3>Sessions</h3>
-      <ul className="summary-list">
-        {summary.roles.map((role) => (
-          <li key={role.role}>
-            <strong>{ROLE_LABELS[role.role] ?? role.role}</strong> —{" "}
-            {role.environments
-              .map((env) => `${env.count} ${env.environmentName} (${formatDuration(env.totalSeconds)})`)
-              .join(", ")}
-          </li>
-        ))}
-      </ul>
-      {summary.roles.map((role) => (
-        <p key={role.role}>
-          Total {ROLE_LABELS[role.role] ?? role.role} hours: {formatDuration(role.totalSeconds)} · avg{" "}
-          {formatDuration(role.averageHandlingSeconds)}
-        </p>
-      ))}
+      {summary.roles.length === 0 ? (
+        <p className="muted">No sessions logged yet today.</p>
+      ) : (
+        <>
+          <h3>Sessions</h3>
+          <ul className="summary-list">
+            {summary.roles.map((role) => (
+              <li key={role.role}>
+                <strong>{ROLE_LABELS[role.role] ?? role.role}</strong> ({formatDuration(role.totalSeconds)}) —{" "}
+                {role.environments
+                  .map((env) => `${env.count} ${env.environmentName} (${formatDuration(env.totalSeconds)})`)
+                  .join(", ")}
+              </li>
+            ))}
+          </ul>
+          <p className="daily-total">Total time: {formatDuration(summary.totalSeconds)}</p>
+        </>
+      )}
+      <DayNotes date={summary.date} savedNote={summary.note} />
     </div>
   );
 }
@@ -201,18 +326,80 @@ function CurrentSessionBar({ session }: { session: SessionRow | null }) {
   );
 }
 
+function EnvironmentManager({ environments }: { environments: EnvironmentRow[] }) {
+  const [newName, setNewName] = useState("");
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<number | null>(null);
+
+  const add = async () => {
+    if (!newName.trim()) return;
+    await window.fleettime.addEnvironment(newName);
+    setNewName("");
+  };
+
+  const remove = async (id: number) => {
+    if (confirmingDeleteId !== id) {
+      setConfirmingDeleteId(id);
+      setTimeout(() => setConfirmingDeleteId((current) => (current === id ? null : current)), 4000);
+      return;
+    }
+    await window.fleettime.deleteEnvironment(id);
+    setConfirmingDeleteId(null);
+  };
+
+  return (
+    <div className="env-manager">
+      <h4>Environments</h4>
+      <div className="env-add-row">
+        <input
+          type="text"
+          value={newName}
+          placeholder="New environment name"
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") add();
+          }}
+        />
+        <button type="button" className="btn-primary" onClick={add}>
+          Add
+        </button>
+      </div>
+      {environments.map((env) => (
+        <div key={env.id} className={`env-row${env.hidden ? " env-hidden" : ""}`}>
+          <span className="env-name">{env.name}</span>
+          <button
+            type="button"
+            onClick={() => window.fleettime.setEnvironmentHidden(env.id, !env.hidden)}
+            title={env.hidden ? "Show in dropdowns" : "Hide from dropdowns"}
+          >
+            {env.hidden ? "Show" : "Hide"}
+          </button>
+          <button
+            type="button"
+            className={confirmingDeleteId === env.id ? "btn-danger" : ""}
+            onClick={() => remove(env.id)}
+          >
+            {confirmingDeleteId === env.id ? "Confirm?" : "Delete"}
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function SettingsPanel({
   darkMode,
   onDarkModeChange,
   autoStartDisabled,
   onAutoStartDisabledChange,
   pairing,
+  environments,
 }: {
   darkMode: boolean;
   onDarkModeChange: (v: boolean) => void;
   autoStartDisabled: boolean;
   onAutoStartDisabledChange: (v: boolean) => void;
   pairing: { port: number; token: string } | null;
+  environments: EnvironmentRow[];
 }) {
   return (
     <div className="card">
@@ -229,6 +416,7 @@ function SettingsPanel({
         />
         Disable auto-start
       </label>
+      <EnvironmentManager environments={environments} />
       {pairing && (
         <div className="pairing">
           <p className="muted">
@@ -245,7 +433,7 @@ function SettingsPanel({
   );
 }
 
-function DayLogRow({ day }: { day: LoggedDay }) {
+function DayLogRow({ day, environments }: { day: LoggedDay; environments: EnvironmentRow[] }) {
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<DailySummary | null>(null);
 
@@ -271,14 +459,12 @@ function DayLogRow({ day }: { day: LoggedDay }) {
       </button>
       {expanded && detail && (
         <div className="day-log-detail">
-          {detail.roles.map((role) => (
-            <p key={role.role} className="muted day-log-role">
-              {ROLE_LABELS[role.role] ?? role.role}: {formatDuration(role.totalSeconds)} · avg{" "}
-              {formatDuration(role.averageHandlingSeconds)}
-            </p>
-          ))}
+          {/* Same per-environment breakdown format as Daily summary; regroups
+              automatically when logs get (re)assigned an environment later,
+              since summaries are computed from session rows on every read. */}
+          <DailySummaryView summary={detail} />
           {detail.sessions.map((session) => (
-            <SessionCard key={session.id} session={session} onChanged={loadDetail} />
+            <SessionCard key={session.id} session={session} environments={environments} onChanged={loadDetail} />
           ))}
         </div>
       )}
@@ -286,13 +472,13 @@ function DayLogRow({ day }: { day: LoggedDay }) {
   );
 }
 
-function AllLogs({ days }: { days: LoggedDay[] }) {
+function AllLogs({ days, environments }: { days: LoggedDay[]; environments: EnvironmentRow[] }) {
   return (
     <div className="card">
       <h3>All logs</h3>
       {days.length === 0 && <p className="muted">No logs yet.</p>}
       {days.map((day) => (
-        <DayLogRow key={day.date} day={day} />
+        <DayLogRow key={day.date} day={day} environments={environments} />
       ))}
     </div>
   );
@@ -306,18 +492,24 @@ export default function App() {
   const [autoStartDisabled, setAutoStartDisabled] = useState(false);
   const [pairing, setPairing] = useState<{ port: number; token: string } | null>(null);
   const [loggedDays, setLoggedDays] = useState<LoggedDay[]>([]);
+  const [environments, setEnvironments] = useState<EnvironmentRow[]>([]);
+  const [weekly, setWeekly] = useState<WeeklySummary | null>(null);
 
   const refresh = useCallback(async () => {
-    const [current, sessions, dailySummary, days] = await Promise.all([
+    const [current, sessions, dailySummary, days, envs, weeklySummary] = await Promise.all([
       window.fleettime.getCurrentSession(),
       window.fleettime.getTodaySessions(),
       window.fleettime.getDailySummary(todayStr()),
       window.fleettime.getLoggedDays(),
+      window.fleettime.getEnvironments(),
+      window.fleettime.getWeeklySummary(),
     ]);
     setCurrentSession(current);
     setTodaySessions(sessions);
     setSummary(dailySummary);
     setLoggedDays(days);
+    setEnvironments(envs);
+    setWeekly(weeklySummary);
   }, []);
 
   useEffect(() => {
@@ -351,12 +543,14 @@ export default function App() {
             .slice()
             .reverse()
             .map((session) => (
-              <SessionCard key={session.id} session={session} onChanged={refresh} />
+              <SessionCard key={session.id} session={session} environments={environments} onChanged={refresh} />
             ))}
         </section>
         <section>
           <h2>Daily summary</h2>
           {summary && <DailySummaryView summary={summary} />}
+          {weekly && <WeeklySummaryView week={weekly} />}
+          <AllLogs days={loggedDays} environments={environments} />
           <SettingsPanel
             darkMode={darkMode}
             onDarkModeChange={(v) => {
@@ -369,8 +563,8 @@ export default function App() {
               window.fleettime.setAutoStartDisabled(v);
             }}
             pairing={pairing}
+            environments={environments}
           />
-          <AllLogs days={loggedDays} />
         </section>
       </div>
     </div>

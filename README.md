@@ -28,6 +28,22 @@ npm run dev             # terminal 1: Vite dev server for the dashboard UI
 npm run electron:dev    # terminal 2: builds main process + launches with FLEETTIME_DEV=1
 ```
 
+### Private local config (gitignored — never committed)
+
+Two files at the repo root hold confidential/personal values and are
+**gitignored** because this repo is public. Copy the matching `*.example.json`
+and fill in real values:
+
+- `seed-environments.json` — pre-seeded environment names (confidential
+  company information). Absent file = no seeds; environments can always be
+  added through Settings → Environments.
+- `rates.json` — personal hourly pay rates per role, used for the weekly
+  earnings display. Absent file = all rates 0 and earnings show $0.00.
+
+Session logs live entirely outside the repo in the app's local SQLite
+database (`~/Library/Application Support/fleettime/`), and `*.db` files are
+gitignored as an extra guard.
+
 ## Tests
 
 ```bash

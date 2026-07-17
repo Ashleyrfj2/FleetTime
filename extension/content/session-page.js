@@ -13,10 +13,14 @@
 
 function parseTaskIdFromLocation() {
   const url = new URL(location.href);
+  // Priority mirrors the background worker's session identity: the stable
+  // task_project_target_id first — instance_id rotates on every recording
+  // reset and is only a last-resort fallback.
   return (
-    url.searchParams.get("instance_id") ||
+    url.searchParams.get("task_project_target_id") ||
     url.searchParams.get("taskId") ||
     url.pathname.match(/\/qa\/([^/]+)$/)?.[1] ||
+    url.searchParams.get("instance_id") ||
     null
   );
 }

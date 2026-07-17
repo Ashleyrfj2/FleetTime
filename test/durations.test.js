@@ -23,7 +23,21 @@ const {
   toSummary,
   listSessionsForDay,
 } = require("../dist-electron/db/sessions");
-const { computeDailySummary, listLoggedDays } = require("../dist-electron/db/summary");
+const {
+  computeDailySummary,
+  computeWeeklySummary,
+  listLoggedDays,
+  getDayNote,
+  setDayNote,
+  HOURLY_RATES,
+} = require("../dist-electron/db/summary");
+const {
+  listEnvironments,
+  addEnvironment,
+  deleteEnvironment,
+  setEnvironmentHidden,
+} = require("../dist-electron/db/environments");
+const { SEED_ENVIRONMENTS } = require("../dist-electron/db/schema");
 
 function localDateStr(d) {
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -266,6 +280,136 @@ check("scenario G: deleting an open session clears the active session", () => {
   const open = startSession({ role: "qa", taskId: "task-H", ts: T0 + sec(9000) });
   deleteSession(open.id);
   assert.strictEqual(getOpenSession(), undefined);
+});
+
+// --- Scenario H: environment reset rotates instance_id, not the session ------
+let th = T0 + sec(10000);
+const h = startSession({
+  role: "task_writing",
+  taskId: "stable-uuid-1",
+  instanceId: "env-key-AAA",
+  url: "https://fleetai.com/work/problems/create?instance_id=env-key-AAA&task_project_target_id=stable-uuid-1",
+  ts: th,
+});
+transitionState(h.id, "slack", th + sec(40)); // bank 40s active before the reset
+
+check("scenario H: recording reset updates instance_id in place", () => {
+  updateOpenSessionTask(h.id, {
+    taskId: "stable-uuid-1",
+    instanceId: "env-key-BBB",
+    url: "https://fleetai.com/work/problems/create?instance_id=env-key-BBB&task_project_target_id=stable-uuid-1",
+  });
+  const row = getSession(h.id);
+  assert.strictEqual(row.task_id, "stable-uuid-1");
+  assert.strictEqual(row.instance_id, "env-key-BBB");
+  assert.strictEqual(row.started_at, th);
+  assert.strictEqual(row.active_seconds, 40);
+  assert.strictEqual(row.current_state, "slack");
+  // Still exactly one session for this task.
+  const db = require("../dist-electron/db/index").getDb();
+  assert.strictEqual(db.prepare("SELECT count(*) AS c FROM sessions WHERE task_id = 'stable-uuid-1'").get().c, 1);
+});
+endSession(h.id, "closed", th + sec(60));
+
+// --- Environments -------------------------------------------------------------
+check("environments: fresh db is seeded with the standard list", () => {
+  // (Seeding of names already used on session rows only applies to existing
+  // databases — in this test the migration ran on an empty table.)
+  const names = listEnvironments().map((env) => env.name);
+  for (const seed of SEED_ENVIRONMENTS) assert.ok(names.includes(seed), `missing seed ${seed}`);
+});
+
+check("environments: add trims and is duplicate-safe", () => {
+  addEnvironment("  Instagram  ");
+  addEnvironment("Instagram");
+  const matches = listEnvironments().filter((env) => env.name === "Instagram");
+  assert.strictEqual(matches.length, 1);
+  addEnvironment("   ");
+  assert.ok(!listEnvironments().some((env) => env.name === ""));
+});
+
+check("environments: hide flag toggles and filters", () => {
+  const instagram = listEnvironments().find((env) => env.name === "Instagram");
+  setEnvironmentHidden(instagram.id, true);
+  const hidden = listEnvironments().find((env) => env.id === instagram.id);
+  assert.strictEqual(hidden.hidden, 1);
+  assert.ok(!listEnvironments().filter((e) => !e.hidden).some((e) => e.name === "Instagram"));
+  setEnvironmentHidden(instagram.id, false);
+  assert.strictEqual(listEnvironments().find((env) => env.id === instagram.id).hidden, 0);
+});
+
+check("environments: delete removes from list but not from session rows", () => {
+  const instagram = listEnvironments().find((env) => env.name === "Instagram");
+  const s = startSession({ role: "qa", taskId: "env-del-test", environmentName: "Instagram", ts: T0 + sec(11000) });
+  endSession(s.id, "closed", T0 + sec(11010));
+  deleteEnvironment(instagram.id);
+  assert.ok(!listEnvironments().some((env) => env.name === "Instagram"));
+  assert.strictEqual(getSession(s.id).environment_name, "Instagram");
+  deleteSession(s.id); // keep later counts stable
+});
+
+check("day notes: upsert, trim, include in summary, empty deletes", () => {
+  assert.strictEqual(getDayNote(today), "");
+  setDayNote(today, "  Slow environment day, two resets  ");
+  assert.strictEqual(getDayNote(today), "Slow environment day, two resets");
+  setDayNote(today, "Revised note");
+  assert.strictEqual(getDayNote(today), "Revised note");
+  assert.strictEqual(computeDailySummary(today).note, "Revised note");
+  setDayNote(today, "   ");
+  assert.strictEqual(getDayNote(today), "");
+});
+
+// --- Scenario I: env_qa role accepted and summarized -------------------------
+check("scenario I: env_qa sessions insert (rebuilt schema) and group in summary", () => {
+  const ti = T0 + sec(12000);
+  const i = startSession({
+    role: "env_qa",
+    taskId: "abc123.env.fleet-prod-7hq-us-east-1",
+    url: "https://abc123.env.fleet-prod-7hq-us-east-1.fleetai.com/",
+    ts: ti,
+  });
+  endSession(i.id, "closed", ti + sec(120));
+  assert.strictEqual(getSession(i.id).role, "env_qa");
+
+  const daily = computeDailySummary(today);
+  const envQa = daily.roles.find((r) => r.role === "env_qa");
+  assert.ok(envQa, "env_qa role group present");
+  assert.strictEqual(envQa.totalSeconds, 120);
+  deleteSession(i.id); // keep later totals stable
+});
+
+check("daily summary: totalSeconds equals the sum of role totals", () => {
+  const daily = computeDailySummary(today);
+  const roleSum = daily.roles.reduce((sum, role) => sum + role.totalSeconds, 0);
+  assert.strictEqual(daily.totalSeconds, roleSum);
+  assert.ok(daily.totalSeconds > 0);
+});
+
+// --- Weekly summary and earnings ----------------------------------------------
+check("weekly summary: Monday–Sunday window, rates, and env_qa minute rounding", () => {
+  // Isolated in a far-past week: June 11–17, 2001 (Mon–Sun).
+  const at = (s) => new Date(s).getTime();
+  const envQa = startSession({ role: "env_qa", taskId: "wk.env.test", ts: at("2001-06-13T12:00:00") });
+  endSession(envQa.id, "closed", at("2001-06-13T12:00:00") + 3629 * 1000); // 60.48 min → rounds to 60
+  const tw = startSession({ role: "task_writing", taskId: "wk-tw", ts: at("2001-06-11T09:00:00") });
+  endSession(tw.id, "closed", at("2001-06-11T09:00:00") + 3600 * 1000); // exactly 1h
+  const before = startSession({ role: "qa", taskId: "wk-out-1", ts: at("2001-06-10T12:00:00") }); // prior Sunday
+  endSession(before.id, "closed", at("2001-06-10T12:00:00") + 500 * 1000);
+  const after = startSession({ role: "qa", taskId: "wk-out-2", ts: at("2001-06-18T12:00:00") }); // next Monday
+  endSession(after.id, "closed", at("2001-06-18T12:00:00") + 500 * 1000);
+
+  const week = computeWeeklySummary("2001-06-15");
+  assert.strictEqual(week.weekStart, "2001-06-11");
+  assert.strictEqual(week.weekEnd, "2001-06-17");
+  assert.strictEqual(week.totalSeconds, 3629 + 3600); // out-of-week sessions excluded
+  // Rates are personal data loaded from gitignored rates.json, so assert the
+  // math relative to whatever is configured, never against literal amounts:
+  // 3629s rounds to 60 minutes = exactly 1 rate-hour; task side is exactly 1h.
+  assert.strictEqual(week.envQaEarnings, HOURLY_RATES.env_qa);
+  assert.strictEqual(week.taskQaEarnings, HOURLY_RATES.task_writing);
+  assert.strictEqual(week.totalEarnings, HOURLY_RATES.env_qa + HOURLY_RATES.task_writing);
+
+  for (const s of [envQa, tw, before, after]) deleteSession(s.id);
 });
 
 console.log(`\n${passed} checks passed`);

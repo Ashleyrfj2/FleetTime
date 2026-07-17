@@ -12,9 +12,16 @@ import {
   toSummary,
   editSession,
   deleteSession,
+  setEnvironmentName,
   EditSessionFields,
 } from "../db/sessions";
-import { computeDailySummary, listLoggedDays } from "../db/summary";
+import {
+  listEnvironments,
+  addEnvironment,
+  deleteEnvironment,
+  setEnvironmentHidden,
+} from "../db/environments";
+import { computeDailySummary, computeWeeklySummary, listLoggedDays, setDayNote } from "../db/summary";
 
 let dashboardWindow: BrowserWindow | null = null;
 
@@ -75,6 +82,13 @@ function registerIpcHandlers(config: AppConfig): void {
 
   ipcMain.handle("logs:get-days", () => listLoggedDays());
 
+  ipcMain.handle("summary:get-weekly", () => computeWeeklySummary());
+
+  ipcMain.handle("notes:set", (_event, dateStr: string, note: string) => {
+    setDayNote(String(dateStr), String(note ?? ""));
+    broadcastLiveUpdate();
+  });
+
   ipcMain.handle("session:edit", (_event, sessionId: string, fields: EditSessionFields) => {
     editSession(sessionId, fields);
     broadcastLiveUpdate();
@@ -82,6 +96,28 @@ function registerIpcHandlers(config: AppConfig): void {
 
   ipcMain.handle("session:delete", (_event, sessionId: string) => {
     deleteSession(sessionId);
+    broadcastLiveUpdate();
+  });
+
+  ipcMain.handle("session:set-environment", (_event, sessionId: string, name: string | null) => {
+    setEnvironmentName(sessionId, name);
+    broadcastLiveUpdate();
+  });
+
+  ipcMain.handle("environments:list", () => listEnvironments());
+
+  ipcMain.handle("environments:add", (_event, name: string) => {
+    addEnvironment(String(name ?? ""));
+    broadcastLiveUpdate();
+  });
+
+  ipcMain.handle("environments:delete", (_event, id: number) => {
+    deleteEnvironment(id);
+    broadcastLiveUpdate();
+  });
+
+  ipcMain.handle("environments:set-hidden", (_event, id: number, hidden: boolean) => {
+    setEnvironmentHidden(id, hidden);
     broadcastLiveUpdate();
   });
 

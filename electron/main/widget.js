@@ -2,6 +2,7 @@ const ROLE_LABELS = {
   task_writing: "Task Writing",
   feedback: "Feedback",
   qa: "QA",
+  env_qa: "Environmental QA",
 };
 
 const STATE_LABELS = {
