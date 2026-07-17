@@ -114,8 +114,8 @@ export function startWsServer(config: AppConfig, onChange: () => void): WebSocke
         case "guidelines_start": {
           const open = getOpenSession();
           // Never yank a session out of a manual break; the user ends breaks
-          // explicitly via the widget.
-          if (open && open.current_state !== "break") {
+          // explicitly via the widget. env_qa is single-timer: no guidelines.
+          if (open && open.current_state !== "break" && open.role !== "env_qa") {
             transitionState(open.id, "guidelines", msg.ts);
             onChange();
           }

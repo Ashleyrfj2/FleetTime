@@ -92,8 +92,9 @@ export function endSession(sessionId: string, reason: "submitted" | "closed", ts
     .run(ts, reason === "submitted" ? ts : null, sessionId);
 }
 
-export function setEnvironmentName(sessionId: string, environmentName: string): void {
-  getDb().prepare("UPDATE sessions SET environment_name = ? WHERE id = ?").run(environmentName, sessionId);
+export function setEnvironmentName(sessionId: string, environmentName: string | null): void {
+  const name = environmentName?.trim() || null;
+  getDb().prepare("UPDATE sessions SET environment_name = ? WHERE id = ?").run(name, sessionId);
 }
 
 /**

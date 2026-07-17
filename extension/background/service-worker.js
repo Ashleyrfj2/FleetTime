@@ -95,17 +95,32 @@ async function handleUrlChange(tabId, url) {
 
   if (parsed) {
     const isSameSession =
-      state.sessionTabId === tabId &&
       state.sessionInfo &&
       state.sessionInfo.taskId === parsed.taskId &&
       state.sessionInfo.role === parsed.role;
     if (isSameSession) {
+      // Adopt the tab if the same task shows up elsewhere (tab duplicated or
+      // reopened) so tracking follows the tab actually being used.
+      if (state.sessionTabId !== tabId) {
+        state.sessionTabId = tabId;
+        persistState();
+      }
       // Same task, but the virtual-environment key rotates on every
       // recording stop/reset — keep the log's URL/instance current without
       // logging a separate session.
       if (parsed.instanceId !== state.sessionInfo.instanceId) {
         updateCurrentSession(parsed, url);
       }
+      return;
+    }
+
+    // Task-writing/QA tabs redirect INTO the deployment host to do the real
+    // work (the /work/problems/create page is visible for only a few seconds)
+    // and environment resets hop back through it. A deployment URL while any
+    // other-role session is open is therefore part of that session — never a
+    // new Environmental QA log. Environmental QA only starts when no session
+    // is active.
+    if (parsed.role === "env_qa" && state.sessionInfo && state.sessionInfo.role !== "env_qa") {
       return;
     }
 
@@ -136,6 +151,8 @@ function setGuidelines(active) {
 async function checkGuidelinesState() {
   await loadState();
   if (!state.sessionInfo) return;
+  // Environmental QA is a single-timer workflow — no guidelines sub-timer.
+  if (state.sessionInfo.role === "env_qa") return;
 
   let activeTab;
   try {

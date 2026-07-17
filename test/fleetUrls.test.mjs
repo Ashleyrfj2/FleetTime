@@ -74,6 +74,31 @@ check("lookalike hosts are rejected", () => {
   assert.strictEqual(parseFleetUrl("https://fleetai.com.evil.example/work/problems/create?instance_id=X"), null);
 });
 
+check("environmental QA: deployment host parses with host-prefix identity", () => {
+  const r = parseFleetUrl("https://abc123def456.env.fleet-prod-7hq-us-east-1.fleetai.com/");
+  assert.strictEqual(r.role, "env_qa");
+  assert.strictEqual(r.taskId, "abc123def456.env.fleet-prod-7hq-us-east-1");
+});
+
+check("environmental QA: in-deployment paths are the same session", () => {
+  const root = parseFleetUrl("https://abc123def456.env.fleet-prod-7hq-us-east-1.fleetai.com/");
+  const home = parseFleetUrl("https://abc123def456.env.fleet-prod-7hq-us-east-1.fleetai.com/home");
+  const deep = parseFleetUrl("https://abc123def456.env.fleet-prod-7hq-us-east-1.fleetai.com/dashboard/list?tab=2");
+  assert.strictEqual(root.taskId, home.taskId);
+  assert.strictEqual(home.taskId, deep.taskId);
+});
+
+check("environmental QA: different deployment id is a different session", () => {
+  const a = parseFleetUrl("https://aaa.env.fleet-prod-7hq-us-east-1.fleetai.com/");
+  const b = parseFleetUrl("https://bbb.env.fleet-prod-7hq-us-east-1.fleetai.com/");
+  assert.notStrictEqual(a.taskId, b.taskId);
+});
+
+check("environmental QA: lookalike host is rejected, www is not env_qa", () => {
+  assert.strictEqual(parseFleetUrl("https://x.env.fleet-prod-1-us-east-1.fleetai.com.evil.example/"), null);
+  assert.notStrictEqual(parseFleetUrl("https://www.fleetai.com/work/problems/create?instance_id=X")?.role, "env_qa");
+});
+
 check("guidelines URLs detected, others not", () => {
   assert.strictEqual(isGuidelinesUrl("https://fleetai.com/work/guidelines"), true);
   assert.strictEqual(isGuidelinesUrl("https://fleetai.com/work/guidelines?doc=abc"), true);

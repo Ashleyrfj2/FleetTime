@@ -1,4 +1,4 @@
-export type SessionRole = "task_writing" | "feedback" | "qa";
+export type SessionRole = "task_writing" | "feedback" | "qa" | "env_qa";
 
 export type SessionState = "active" | "guidelines" | "slack" | "idle" | "break" | "ended";
 

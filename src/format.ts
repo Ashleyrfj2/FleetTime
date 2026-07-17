@@ -26,4 +26,5 @@ export const ROLE_LABELS: Record<string, string> = {
   task_writing: "Task writing",
   feedback: "Feedback",
   qa: "QA",
+  env_qa: "Environmental QA",
 };

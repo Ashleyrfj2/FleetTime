@@ -1,5 +1,7 @@
+import * as fs from "fs";
+import * as path from "path";
 import { SessionRole, SessionRow, SessionSummary } from "./types";
-import { listSessionsForDay, toSummary } from "./sessions";
+import { listSessionsForDay, listSessionsForRange, toSummary } from "./sessions";
 import { getDb } from "./index";
 
 export interface EnvironmentGroup {
@@ -18,11 +20,35 @@ export interface RoleGroup {
 
 export interface DailySummary {
   date: string;
+  totalSeconds: number;
+  note: string;
   roles: RoleGroup[];
   sessions: SessionSummary[];
 }
 
-const ROLE_ORDER: SessionRole[] = ["task_writing", "qa", "feedback"];
+export function getDayNote(dateStr: string): string {
+  const row = getDb().prepare("SELECT note FROM day_notes WHERE date = ?").get(dateStr) as
+    | { note: string }
+    | undefined;
+  return row?.note ?? "";
+}
+
+/** Upserts the note for a local date; an empty note removes the row. */
+export function setDayNote(dateStr: string, note: string): void {
+  const trimmed = note.trim();
+  if (!trimmed) {
+    getDb().prepare("DELETE FROM day_notes WHERE date = ?").run(dateStr);
+    return;
+  }
+  getDb()
+    .prepare(
+      `INSERT INTO day_notes (date, note, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(date) DO UPDATE SET note = excluded.note, updated_at = excluded.updated_at`
+    )
+    .run(dateStr, trimmed, Date.now());
+}
+
+const ROLE_ORDER: SessionRole[] = ["task_writing", "qa", "env_qa", "feedback"];
 
 export interface LoggedDay {
   date: string; // local YYYY-MM-DD
@@ -65,6 +91,79 @@ export function listLoggedDays(): LoggedDay[] {
   return days;
 }
 
+// Hourly pay rates are personal information and load from rates.json at the
+// repo root, which is gitignored (copy rates.example.json to create it).
+// Missing file = all rates 0, so earnings simply display as $0.00.
+function loadRates(): Record<SessionRole, number> {
+  const defaults: Record<SessionRole, number> = { env_qa: 0, task_writing: 0, qa: 0, feedback: 0 };
+  // __dirname is dist-electron/db at runtime; the repo root is two levels up.
+  const file = path.join(__dirname, "../../rates.json");
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
+    for (const role of Object.keys(defaults) as SessionRole[]) {
+      if (typeof parsed[role] === "number" && parsed[role] >= 0) defaults[role] = parsed[role];
+    }
+  } catch {
+    // Absent or malformed: keep zeros.
+  }
+  return defaults;
+}
+
+export const HOURLY_RATES = loadRates();
+
+export interface WeeklySummary {
+  weekStart: string; // Monday, local YYYY-MM-DD
+  weekEnd: string; // Sunday, local YYYY-MM-DD
+  totalSeconds: number;
+  envQaSeconds: number;
+  taskQaSeconds: number; // task_writing + qa + feedback
+  envQaRate: number;
+  taskQaRate: number;
+  envQaEarnings: number;
+  taskQaEarnings: number;
+  totalEarnings: number;
+}
+
+/**
+ * Monday–Sunday pay-period rollup for the week containing `dateStr` (defaults
+ * to today). Earnings: Environmental QA time is rounded to the nearest minute
+ * before multiplying by its rate, per the pay-period convention.
+ */
+export function computeWeeklySummary(dateStr?: string): WeeklySummary {
+  const anchor = dateStr ? new Date(`${dateStr}T12:00:00`) : new Date();
+  const monday = new Date(anchor);
+  monday.setDate(anchor.getDate() - ((anchor.getDay() + 6) % 7));
+  monday.setHours(0, 0, 0, 0);
+  const startMs = monday.getTime();
+  const endMs = startMs + 7 * 24 * 60 * 60 * 1000;
+
+  const sessions = listSessionsForRange(startMs, endMs);
+  let envQaSeconds = 0;
+  let taskQaSeconds = 0;
+  for (const s of sessions) {
+    if (s.role === "env_qa") envQaSeconds += s.total_seconds;
+    else taskQaSeconds += s.total_seconds;
+  }
+
+  const envQaMinutes = Math.round(envQaSeconds / 60);
+  const envQaEarnings = (envQaMinutes / 60) * HOURLY_RATES.env_qa;
+  const taskQaEarnings = (taskQaSeconds / 3600) * HOURLY_RATES.task_writing;
+
+  const sunday = new Date(startMs + 6 * 24 * 60 * 60 * 1000);
+  return {
+    weekStart: localDateStr(startMs),
+    weekEnd: localDateStr(sunday.getTime()),
+    totalSeconds: envQaSeconds + taskQaSeconds,
+    envQaSeconds,
+    taskQaSeconds,
+    envQaRate: HOURLY_RATES.env_qa,
+    taskQaRate: HOURLY_RATES.task_writing,
+    envQaEarnings,
+    taskQaEarnings,
+    totalEarnings: envQaEarnings + taskQaEarnings,
+  };
+}
+
 export function computeDailySummary(dateStr: string): DailySummary {
   const sessions = listSessionsForDay(dateStr);
 
@@ -98,5 +197,6 @@ export function computeDailySummary(dateStr: string): DailySummary {
     };
   });
 
-  return { date: dateStr, roles, sessions };
+  const totalSeconds = roles.reduce((sum, role) => sum + role.totalSeconds, 0);
+  return { date: dateStr, totalSeconds, note: getDayNote(dateStr), roles, sessions };
 }
