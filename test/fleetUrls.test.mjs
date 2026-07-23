@@ -94,6 +94,24 @@ check("environmental QA: different deployment id is a different session", () => 
   assert.notStrictEqual(a.taskId, b.taskId);
 });
 
+check("environmental QA (secondary scheme): /qa/<uuid> on the bare domain parses as env_qa", () => {
+  const r = parseFleetUrl("https://fleetai.com/qa/168ce265-ff92-4e54-ac19-9f832fcdb444");
+  assert.strictEqual(r.role, "env_qa");
+  assert.strictEqual(r.taskId, "168ce265-ff92-4e54-ac19-9f832fcdb444");
+});
+
+check("environmental QA (secondary scheme): a different deployment uuid is a different session", () => {
+  const a = parseFleetUrl("https://fleetai.com/qa/168ce265-ff92-4e54-ac19-9f832fcdb444");
+  const b = parseFleetUrl("https://fleetai.com/qa/99999999-ff92-4e54-ac19-9f832fcdb444");
+  assert.notStrictEqual(a.taskId, b.taskId);
+});
+
+check("environmental QA (secondary scheme): non-uuid /qa/ paths do not match", () => {
+  // Guard against catching the task-QA path or arbitrary /qa/ links.
+  assert.strictEqual(parseFleetUrl("https://fleetai.com/qa/not-a-uuid"), null);
+  assert.strictEqual(parseFleetUrl("https://fleetai.com/qa/168ce265-ff92-4e54-ac19-9f832fcdb444/extra"), null);
+});
+
 check("environmental QA: lookalike host is rejected, www is not env_qa", () => {
   assert.strictEqual(parseFleetUrl("https://x.env.fleet-prod-1-us-east-1.fleetai.com.evil.example/"), null);
   assert.notStrictEqual(parseFleetUrl("https://www.fleetai.com/work/problems/create?instance_id=X")?.role, "env_qa");

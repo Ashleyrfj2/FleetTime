@@ -27,6 +27,23 @@ export function parseFleetUrl(url) {
     };
   }
 
+  // Environmental QA (secondary scheme): a newer deployment style serves the
+  // QA environment from the bare domain at /qa/<deployment-uuid> instead of an
+  // .env. subdomain, e.g. https://fleetai.com/qa/168ce265-ff92-4e54-ac19-9f832fcdb444.
+  // First seen 2026-07 and not yet confirmed stable across deployments — the
+  // working assumption is that the /qa/ prefix holds and only the UUID changes
+  // per deploy. Same env_qa role; the UUID is the session identity, so a new
+  // deployment is a new session and in-deployment navigation stays one session.
+  const envQaPathMatch = u.pathname.match(
+    /^\/qa\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+  );
+  if (envQaPathMatch) {
+    return {
+      role: "env_qa",
+      taskId: envQaPathMatch[1],
+    };
+  }
+
   if (u.pathname === "/work/problems/create" && u.searchParams.has("instance_id")) {
     // instance_id is the *virtual environment* key — it changes every time
     // recording stops/resets within one task, so it must NOT be the session
