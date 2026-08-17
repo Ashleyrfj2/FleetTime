@@ -44,7 +44,7 @@ export function parseFleetUrl(url) {
     };
   }
 
-  if (u.pathname === "/work/problems/create" && u.searchParams.has("instance_id")) {
+  if ((u.pathname === "/work/problems/create" || u.pathname === "/work/problems/create-tool-use") && u.searchParams.has("instance_id")) {
     // instance_id is the *virtual environment* key — it changes every time
     // recording stops/resets within one task, so it must NOT be the session
     // identity or each reset logs separately. task_project_target_id is the
